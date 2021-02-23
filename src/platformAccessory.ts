@@ -83,16 +83,9 @@ export class MotionBlindsAccessory {
         })
 
       if (this.config.tilt) {
-        const currentTiltCharacteristic = IsVerticalBlind(this.status.type)
-          ? this.platform.Characteristic.CurrentVerticalTiltAngle
-          : this.platform.Characteristic.CurrentHorizontalTiltAngle
         const targetTiltCharacteristic = IsVerticalBlind(this.status.type)
           ? this.platform.Characteristic.TargetVerticalTiltAngle
           : this.platform.Characteristic.TargetHorizontalTiltAngle
-
-        this.service
-          .getCharacteristic(currentTiltCharacteristic)
-          .on('get', (callback) => callback(null, this.status.currentAngle - 90))
 
         this.service
           .getCharacteristic(targetTiltCharacteristic)
@@ -107,6 +100,16 @@ export class MotionBlindsAccessory {
               .catch((err) => callback(err, null))
           })
       }
+    }
+
+    if (this.config.tilt) {
+      const currentTiltCharacteristic = IsVerticalBlind(this.status.type)
+        ? this.platform.Characteristic.CurrentVerticalTiltAngle
+        : this.platform.Characteristic.CurrentHorizontalTiltAngle
+
+      this.service
+        .getCharacteristic(currentTiltCharacteristic)
+        .on('get', (callback) => callback(null, this.status.currentAngle - 90))
     }
 
     this.battery =

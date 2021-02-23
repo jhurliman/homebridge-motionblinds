@@ -1,5 +1,4 @@
 {
-  "private": true,
   "displayName": "MOTION Blinds",
   "name": "homebridge-motionblinds",
   "version": "0.1.0",
