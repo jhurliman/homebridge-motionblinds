@@ -1,5 +1,5 @@
 {
-  "pluginAlias": "ExampleHomebridgePlugin",
+  "pluginAlias": "MotionBlinds",
   "pluginType": "platform",
   "singular": true,
   "schema": {
@@ -9,7 +9,54 @@
         "title": "Name",
         "type": "string",
         "required": true,
-        "default": "Example Dynamic Platform"
+        "default": "MOTION Blinds"
+      },
+      "key": {
+        "title": "Key",
+        "description": "Key acquired from the MOTION app, has the format xxxxxxxx-xxxx-xx",
+        "type": "string",
+        "minLength": 16,
+        "maxLength": 16,
+        "required": false
+      },
+      "blinds": {
+        "type": "array",
+        "title": "Blinds",
+        "description": "Override per blind settings such as name",
+        "required": false,
+        "items": {
+          "type": "object",
+          "title": "Blind",
+          "description": "Blind to override settings for",
+          "properties": {
+            "mac": {
+              "title": "MAC Address",
+              "type": "string",
+              "minLength": 16,
+              "maxLength": 16,
+              "required": true,
+              "description": "16-character unique identifier for this window covering"
+            },
+            "name": {
+              "type": "string",
+              "title": "Blind Name",
+              "required": false,
+              "description": "Name of the window covering as it will appear in HomeKit."
+            },
+            "tilt": {
+              "type": "boolean",
+              "title": "Support Tilt Angle",
+              "required": false,
+              "description": "Enable tilt angle control for this window covering"
+            },
+            "invert": {
+              "type": "boolean",
+              "title": "Invert Window Orientation",
+              "required": false,
+              "description": "Swap up for down or left for right in this window coverings orientation"
+            }
+          }
+        }
       }
     }
   }

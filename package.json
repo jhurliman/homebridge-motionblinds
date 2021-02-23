@@ -1,16 +1,16 @@
 {
   "private": true,
-  "displayName": "Plugin Name",
-  "name": "homebridge-plugin-name",
-  "version": "1.0.0",
+  "displayName": "MOTION Blinds",
+  "name": "homebridge-motionblinds",
+  "version": "0.1.0",
   "description": "A short description about what your plugin does.",
   "license": "Apache-2.0",
   "repository": {
     "type": "git",
-    "url": "git://github.com/USERNAME/GITHUB_PROJECT_NAME.git"
+    "url": "git://github.com/jhurliman/homebridge-motionblinds.git"
   },
   "bugs": {
-    "url": "https://github.com/USERNAME/GITHUB_PROJECT_NAME/issues"
+    "url": "https://github.com/jhurliman/homebridge-motionblinds/issues"
   },
   "engines": {
     "node": ">=10.17.0",
@@ -19,19 +19,27 @@
   "main": "dist/index.js",
   "scripts": {
     "lint": "eslint src/**.ts --max-warnings=0",
-    "watch": "npm run build && npm link && nodemon",
+    "watch": "yarn run build && yarn link && nodemon",
     "build": "rimraf ./dist && tsc",
-    "prepublishOnly": "npm run lint && npm run build"
+    "prepublishOnly": "yarn run lint && yarn run build"
   },
   "keywords": [
     "homebridge-plugin"
   ],
-  "dependencies": {},
+  "prettier": {
+    "printWidth": 100,
+    "semi": false,
+    "singleQuote": true,
+    "trailingComma": "all"
+  },
+  "dependencies": {
+    "motionblinds": "^1.0.0"
+  },
   "devDependencies": {
     "@types/node": "^14.14.22",
     "@typescript-eslint/eslint-plugin": "^4.14.1",
     "@typescript-eslint/parser": "^4.14.1",
-    "eslint": "^7.18.0",
+    "eslint": "^7.20.0",
     "homebridge": "^1.2.5",
     "nodemon": "^2.0.7",
     "rimraf": "^3.0.2",

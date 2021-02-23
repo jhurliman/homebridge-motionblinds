@@ -1,151 +1,213 @@
-import { Service, PlatformAccessory, CharacteristicValue, CharacteristicSetCallback, CharacteristicGetCallback } from 'homebridge';
+import { Service, PlatformAccessory } from 'homebridge'
+import { BlindType, DeviceStatus, DeviceType, MotionGateway, Operation } from 'motionblinds'
 
-import { ExampleHomebridgePlatform } from './platform';
+import { BlindAccessoryConfig, MotionBlindsPlatform } from './platform'
 
-/**
- * Platform Accessory
- * An instance of this class is created for each accessory your platform registers
- * Each accessory may expose multiple services of different service types.
- */
-export class ExamplePlatformAccessory {
-  private service: Service;
+function IsVerticalBlind(blindType: BlindType) {
+  switch (blindType) {
+    case BlindType.RollerBlind:
+    case BlindType.VenetianBlind:
+    case BlindType.RomanBlind:
+    case BlindType.HoneycombBlind:
+    case BlindType.ShangriLaBlind:
+    case BlindType.Awning:
+    case BlindType.TopDownBottomUp:
+    case BlindType.DayNightBlind:
+    case BlindType.DimmingBlind:
+    case BlindType.DoubleRoller:
+    case BlindType.Switch:
+      return true
+    default:
+      return false
+  }
+}
 
-  /**
-   * These are just used to create a working example
-   * You should implement your own code to track the state of your accessory
-   */
-  private exampleStates = {
-    On: false,
-    Brightness: 100,
-  };
+export class MotionBlindsAccessory {
+  private service: Service
+  private battery: Service
+  private config: BlindAccessoryConfig
 
   constructor(
-    private readonly platform: ExampleHomebridgePlatform,
+    private readonly platform: MotionBlindsPlatform,
     private readonly accessory: PlatformAccessory,
   ) {
+    this.config = this.platform.blindConfigs.get(this.mac) || { mac: this.mac }
 
-    // set accessory information
-    this.accessory.getService(this.platform.Service.AccessoryInformation)!
-      .setCharacteristic(this.platform.Characteristic.Manufacturer, 'Default-Manufacturer')
-      .setCharacteristic(this.platform.Characteristic.Model, 'Default-Model')
-      .setCharacteristic(this.platform.Characteristic.SerialNumber, 'Default-Serial');
+    this.accessory
+      .getService(this.platform.Service.AccessoryInformation)!
+      .setCharacteristic(this.platform.Characteristic.Manufacturer, 'MOTION')
+      .setCharacteristic(this.platform.Characteristic.Model, BlindType[this.status.type])
+      .setCharacteristic(this.platform.Characteristic.SerialNumber, this.mac)
 
-    // get the LightBulb service if it exists, otherwise create a new LightBulb service
-    // you can create multiple services for each accessory
-    this.service = this.accessory.getService(this.platform.Service.Lightbulb) || this.accessory.addService(this.platform.Service.Lightbulb);
+    // TODO: Support TDBU blinds by creating two separate WindowCovering services
 
-    // set the service name, this is what is displayed as the default name on the Home app
-    // in this example we are using the name we stored in the `accessory.context` in the `discoverDevices` method.
-    this.service.setCharacteristic(this.platform.Characteristic.Name, accessory.context.device.exampleDisplayName);
+    this.service =
+      this.accessory.getService(this.platform.Service.WindowCovering) ||
+      this.accessory.addService(this.platform.Service.WindowCovering)
 
-    // each service must implement at-minimum the "required characteristics" for the given service type
-    // see https://developers.homebridge.io/#/service/Lightbulb
+    this.service.setCharacteristic(this.platform.Characteristic.Name, this.config.name || this.mac)
 
-    // register handlers for the On/Off Characteristic
-    this.service.getCharacteristic(this.platform.Characteristic.On)
-      .on('set', this.setOn.bind(this))                // SET - bind to the `setOn` method below
-      .on('get', this.getOn.bind(this));               // GET - bind to the `getOn` method below
+    this.service
+      .getCharacteristic(this.platform.Characteristic.CurrentPosition)
+      .on('get', (callback) => callback(null, this.status.currentPosition))
 
-    // register handlers for the Brightness Characteristic
-    this.service.getCharacteristic(this.platform.Characteristic.Brightness)
-      .on('set', this.setBrightness.bind(this));       // SET - bind to the 'setBrightness` method below
+    this.service
+      .getCharacteristic(this.platform.Characteristic.PositionState)
+      .on('get', (callback) => callback(null, this.positionState(this.status)))
 
+    // A key is required for write commands
+    if (this.platform.gateway.key) {
+      this.service
+        .getCharacteristic(this.platform.Characteristic.TargetPosition)
+        .on('get', (callback) => callback(null, this.accessory.context.targetPosition))
+        .on('set', (value, callback) => {
+          const targetPosition = value as number
+          const effectiveTarget = this.config.invert ? 100 - targetPosition : targetPosition
+          this.accessory.context.targetPosition = targetPosition
+          this.platform.gateway
+            .writeDevice(this.mac, this.deviceType, { targetPosition: effectiveTarget })
+            .then(() => callback(null, value))
+            .catch((err) => callback(err, null))
+        })
 
-    /**
-     * Creating multiple services of the same type.
-     * 
-     * To avoid "Cannot add a Service with the same UUID another Service without also defining a unique 'subtype' property." error,
-     * when creating multiple services of the same type, you need to use the following syntax to specify a name and subtype id:
-     * this.accessory.getService('NAME') || this.accessory.addService(this.platform.Service.Lightbulb, 'NAME', 'USER_DEFINED_SUBTYPE_ID');
-     * 
-     * The USER_DEFINED_SUBTYPE must be unique to the platform accessory (if you platform exposes multiple accessories, each accessory
-     * can use the same sub type id.)
-     */
+      this.service
+        .getCharacteristic(this.platform.Characteristic.HoldPosition)
+        .on('set', (value, callback) => {
+          if (!value) {
+            return callback(null, value)
+          }
+          this.platform.gateway
+            .writeDevice(this.mac, this.deviceType, { operation: Operation.Stop })
+            .then(() => callback(null, value))
+            .catch((err) => callback(err, null))
+        })
 
-    // Example: add two "motion sensor" services to the accessory
-    const motionSensorOneService = this.accessory.getService('Motion Sensor One Name') ||
-      this.accessory.addService(this.platform.Service.MotionSensor, 'Motion Sensor One Name', 'YourUniqueIdentifier-1');
+      if (this.config.tilt) {
+        const currentTiltCharacteristic = IsVerticalBlind(this.status.type)
+          ? this.platform.Characteristic.CurrentVerticalTiltAngle
+          : this.platform.Characteristic.CurrentHorizontalTiltAngle
+        const targetTiltCharacteristic = IsVerticalBlind(this.status.type)
+          ? this.platform.Characteristic.TargetVerticalTiltAngle
+          : this.platform.Characteristic.TargetHorizontalTiltAngle
 
-    const motionSensorTwoService = this.accessory.getService('Motion Sensor Two Name') ||
-      this.accessory.addService(this.platform.Service.MotionSensor, 'Motion Sensor Two Name', 'YourUniqueIdentifier-2');
+        this.service
+          .getCharacteristic(currentTiltCharacteristic)
+          .on('get', (callback) => callback(null, this.status.currentAngle - 90))
 
-    /**
-     * Updating characteristics values asynchronously.
-     * 
-     * Example showing how to update the state of a Characteristic asynchronously instead
-     * of using the `on('get')` handlers.
-     * Here we change update the motion sensor trigger states on and off every 10 seconds
-     * the `updateCharacteristic` method.
-     * 
-     */
-    let motionDetected = false;
+        this.service
+          .getCharacteristic(targetTiltCharacteristic)
+          .on('get', (callback) => callback(null, this.accessory.context.targetAngle))
+          .on('set', (value, callback) => {
+            const targetAngle = value as number
+            const effectiveTarget = targetAngle + 90 // Convert from [-90, 90] to [0, 180]
+            this.accessory.context.targetAngle = targetAngle
+            this.platform.gateway
+              .writeDevice(this.mac, this.deviceType, { targetAngle: effectiveTarget })
+              .then(() => callback(null, value))
+              .catch((err) => callback(err, null))
+          })
+      }
+    }
+
+    this.battery =
+      this.accessory.getService('Battery') ||
+      this.accessory.addService(this.platform.Service.Battery, 'Battery', 'Battery-1')
+
+    this.battery
+      .getCharacteristic(this.platform.Characteristic.StatusLowBattery)
+      .on('get', (callback) => callback(null, this.batteryStatus(this.status)))
+
+    this.battery
+      .getCharacteristic(this.platform.Characteristic.BatteryLevel)
+      .on('get', (callback) => callback(null, this.batteryLevel(this.status)))
+
+    // Poll for any inconsistent state every 10s
     setInterval(() => {
-      // EXAMPLE - inverse the trigger
-      motionDetected = !motionDetected;
+      this.platform.gateway
+        .readDevice(this.mac, this.deviceType)
+        .then((res) => this.updateAccessory(res.data))
+        .catch((err) => {
+          this.platform.log.error(`readDevice(${this.mac}, ${this.deviceType}) failed:`, err)
+        })
+    }, 10000)
 
-      // push the new value to HomeKit
-      motionSensorOneService.updateCharacteristic(this.platform.Characteristic.MotionDetected, motionDetected);
-      motionSensorTwoService.updateCharacteristic(this.platform.Characteristic.MotionDetected, !motionDetected);
-
-      this.platform.log.debug('Triggering motionSensorOneService:', motionDetected);
-      this.platform.log.debug('Triggering motionSensorTwoService:', !motionDetected);
-    }, 10000);
+    this.platform.gateway.on('report', (report) => {
+      if (report.mac === this.mac) {
+        this.updateAccessory(report.data)
+      }
+    })
   }
 
-  /**
-   * Handle "SET" requests from HomeKit
-   * These are sent when the user changes the state of an accessory, for example, turning on a Light bulb.
-   */
-  setOn(value: CharacteristicValue, callback: CharacteristicSetCallback) {
-
-    // implement your own code to turn your device on/off
-    this.exampleStates.On = value as boolean;
-
-    this.platform.log.debug('Set Characteristic On ->', value);
-
-    // you must call the callback function
-    callback(null);
+  get mac() {
+    return this.accessory.context.mac as string
   }
 
-  /**
-   * Handle the "GET" requests from HomeKit
-   * These are sent when HomeKit wants to know the current state of the accessory, for example, checking if a Light bulb is on.
-   * 
-   * GET requests should return as fast as possbile. A long delay here will result in
-   * HomeKit being unresponsive and a bad user experience in general.
-   * 
-   * If your device takes time to respond you should update the status of your device
-   * asynchronously instead using the `updateCharacteristic` method instead.
-
-   * @example
-   * this.service.updateCharacteristic(this.platform.Characteristic.On, true)
-   */
-  getOn(callback: CharacteristicGetCallback) {
-
-    // implement your own code to check if the device is on
-    const isOn = this.exampleStates.On;
-
-    this.platform.log.debug('Get Characteristic On ->', isOn);
-
-    // you must call the callback function
-    // the first argument should be null if there were no errors
-    // the second argument should be the value to return
-    callback(null, isOn);
+  get deviceType() {
+    return this.accessory.context.deviceType as DeviceType
   }
 
-  /**
-   * Handle "SET" requests from HomeKit
-   * These are sent when the user changes the state of an accessory, for example, changing the Brightness
-   */
-  setBrightness(value: CharacteristicValue, callback: CharacteristicSetCallback) {
-
-    // implement your own code to set the brightness
-    this.exampleStates.Brightness = value as number;
-
-    this.platform.log.debug('Set Characteristic Brightness -> ', value);
-
-    // you must call the callback function
-    callback(null);
+  get status() {
+    return this.accessory.context.status as DeviceStatus
   }
 
+  batteryLevel(status: DeviceStatus) {
+    return MotionGateway.BatteryInfo(status.batteryLevel)[1] * 100
+  }
+
+  batteryStatus(status: DeviceStatus) {
+    return this.batteryLevel(status) >= 20
+      ? this.platform.Characteristic.StatusLowBattery.BATTERY_LEVEL_NORMAL
+      : this.platform.Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW
+  }
+
+  positionState(status: DeviceStatus) {
+    const DECREASING = this.platform.Characteristic.PositionState.DECREASING
+    const INCREASING = this.platform.Characteristic.PositionState.INCREASING
+    if (status.operation === Operation.CloseDown) {
+      return this.config.invert ? INCREASING : DECREASING
+    } else if (status.operation === Operation.OpenUp) {
+      return this.config.invert ? DECREASING : INCREASING
+    }
+    return this.platform.Characteristic.PositionState.STOPPED
+  }
+
+  // Broadcast updates for any characteristics that changed, then update `this.accessory.context.status`
+  updateAccessory(newStatus: DeviceStatus) {
+    const prevStatus = this.status
+
+    if (newStatus.currentPosition !== prevStatus.currentPosition) {
+      this.service.updateCharacteristic(
+        this.platform.Characteristic.CurrentPosition,
+        newStatus.currentPosition,
+      )
+      this.service.updateCharacteristic(
+        this.platform.Characteristic.PositionState,
+        this.positionState(newStatus),
+      )
+    }
+
+    if (this.config.tilt && newStatus.currentAngle !== prevStatus.currentAngle) {
+      const currentTiltCharacteristic = IsVerticalBlind(newStatus.type)
+        ? this.platform.Characteristic.CurrentVerticalTiltAngle
+        : this.platform.Characteristic.CurrentHorizontalTiltAngle
+      this.service.updateCharacteristic(currentTiltCharacteristic, newStatus.currentAngle - 90)
+    }
+
+    const prevBattery = this.batteryLevel(prevStatus)
+    const newBattery = this.batteryLevel(newStatus)
+    if (prevBattery !== newBattery) {
+      this.service.updateCharacteristic(this.platform.Characteristic.BatteryLevel, newBattery)
+    }
+
+    const prevBatteryStatus = this.batteryStatus(prevStatus)
+    const newBatteryStatus = this.batteryStatus(newStatus)
+    if (prevBatteryStatus !== newBatteryStatus) {
+      this.service.updateCharacteristic(
+        this.platform.Characteristic.StatusLowBattery,
+        newBatteryStatus,
+      )
+    }
+
+    this.accessory.context.status = newStatus
+  }
 }
