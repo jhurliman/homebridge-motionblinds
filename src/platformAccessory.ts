@@ -66,8 +66,8 @@ export class MotionBlindsAccessory {
           this.accessory.context.targetPosition = targetPosition
           this.platform.gateway
             .writeDevice(this.mac, this.deviceType, { targetPosition: effectiveTarget })
-            .then(() => callback(null, value))
-            .catch((err) => callback(err, null))
+            .then(() => callback(null))
+            .catch((err) => callback(err))
         })
 
       this.service
@@ -96,8 +96,8 @@ export class MotionBlindsAccessory {
             this.accessory.context.targetAngle = targetAngle
             this.platform.gateway
               .writeDevice(this.mac, this.deviceType, { targetAngle: effectiveTarget })
-              .then(() => callback(null, value))
-              .catch((err) => callback(err, null))
+              .then(() => callback(null))
+              .catch((err) => callback(err))
           })
       }
     }
