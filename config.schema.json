@@ -19,6 +19,13 @@
         "maxLength": 16,
         "required": false
       },
+      "gatewayIp": {
+        "title": "Gateway IP",
+        "description": "IP address of the MOTION gateway",
+        "type": "string",
+        "format": "ipv4",
+        "required": false
+      },
       "blinds": {
         "type": "array",
         "title": "Blinds",

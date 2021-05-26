@@ -17,12 +17,13 @@ Homebridge plugin to control MOTION Blinds by Coulisse B.V. including derivative
 
 ## Configuration
 
-All fields are optional except `"platform"`, and `"mac"` if any blinds are specified. If no `"key"` is given, blinds will appear as read only with no control.
+All fields are optional except `"platform"`, and `"mac"` if any blinds are specified. If no `"key"` is given, blinds will appear as read only with no control. If you are having connectivity issues, try specifying the `"gatewayIp"`.
 
 ```json
 {
   "platform": "MotionBlinds",
   "key": "xxxxxxxx-xxxx-xx",
+  "gatewayIp": "10.0.0.23",
   "blinds": [
     {
       "mac": "xxxxxxxxxxxxxxxx",

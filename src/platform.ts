@@ -46,7 +46,7 @@ export class MotionBlindsPlatform implements DynamicPlatformPlugin {
       }
     }
 
-    this.gateway = new MotionGateway(config.key)
+    this.gateway = new MotionGateway({ key: config.key, gatewayIp: config.gatewayIp })
 
     this.log.debug('Finished initializing platform:', this.config.name)
 
