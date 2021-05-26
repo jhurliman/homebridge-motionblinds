@@ -7,7 +7,7 @@ import {
   Service,
   Characteristic,
 } from 'homebridge'
-import { MotionGateway } from 'motionblinds'
+import { DeviceStatus, DeviceType, MotionGateway, Report } from 'motionblinds'
 
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings'
 import { MotionBlindsAccessory } from './platformAccessory'
@@ -32,6 +32,8 @@ export class MotionBlindsPlatform implements DynamicPlatformPlugin {
   public readonly blindConfigs = new Map<string, BlindAccessoryConfig>()
   public readonly gateway: MotionGateway
 
+  private seenThisSession = new Set<string>()
+
   constructor(
     public readonly log: Logger,
     public readonly config: PlatformConfig,
@@ -50,6 +52,7 @@ export class MotionBlindsPlatform implements DynamicPlatformPlugin {
 
     this.api.on('didFinishLaunching', () => {
       log.debug('Executed didFinishLaunching callback')
+      this.gateway.on('report', this.handleReport)
       this.discoverDevices()
     })
   }
@@ -66,38 +69,7 @@ export class MotionBlindsPlatform implements DynamicPlatformPlugin {
 
       // Add newly discovered and previously discovered devices
       for (const device of devices) {
-        const uuid = this.api.hap.uuid.generate(device.mac)
-        const existingAccessory = this.accessories.find((accessory) => accessory.UUID === uuid)
-
-        if (existingAccessory) {
-          // the accessory already exists
-          this.log.info('Restoring existing accessory from cache:', existingAccessory.displayName)
-
-          existingAccessory.context.status = device.data
-
-          this.api.updatePlatformAccessories([existingAccessory])
-
-          new MotionBlindsAccessory(this, existingAccessory)
-        } else {
-          // the accessory does not yet exist, so we need to create it
-          this.log.info('Adding new accessory:', device.mac)
-
-          // create a new accessory
-          const accessory = new this.api.platformAccessory(device.mac, uuid)
-
-          // store a copy of the device object in the `accessory.context`
-          // the `context` property can be used to store any data about the accessory you may need
-          accessory.context.mac = device.mac
-          accessory.context.deviceType = device.deviceType
-          accessory.context.status = device.data
-
-          // create the accessory handler for the newly create accessory
-          // this is imported from `platformAccessory.ts`
-          new MotionBlindsAccessory(this, accessory)
-
-          // link the accessory to your platform
-          this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory])
-        }
+        this.maybeAddOrUpdateAccessory(device.mac, device.deviceType, device.data)
       }
 
       // Remove previously discovered devices that no longer exist
@@ -109,5 +81,50 @@ export class MotionBlindsPlatform implements DynamicPlatformPlugin {
     } catch (err) {
       this.log.error('Failed fetching list of MOTION Blinds:', err)
     }
+  }
+
+  maybeAddOrUpdateAccessory(mac: string, deviceType: DeviceType, status: DeviceStatus) {
+    if (this.seenThisSession.has(mac)) {
+      return
+    }
+    this.seenThisSession.add(mac)
+
+    const uuid = this.api.hap.uuid.generate(mac)
+    const existingAccessory = this.accessories.find((accessory) => accessory.UUID === uuid)        
+
+    if (existingAccessory) {
+      // the accessory already exists
+      this.log.info('Restoring existing accessory from cache:', existingAccessory.displayName)
+      existingAccessory.context.status = status
+      this.api.updatePlatformAccessories([existingAccessory])
+      new MotionBlindsAccessory(this, existingAccessory)
+    } else {
+      this.addAccessory(mac, uuid, deviceType, status)
+    }
+  }
+
+  addAccessory(mac: string, uuid: string, deviceType: DeviceType, status: DeviceStatus) {
+    // the accessory does not yet exist, so we need to create it
+    this.log.info('Adding new accessory:', mac)
+
+    // create a new accessory
+    const accessory = new this.api.platformAccessory(mac, uuid)
+
+    // store a copy of the device object in the `accessory.context`
+    // the `context` property can be used to store any data about the accessory you may need
+    accessory.context.mac = mac
+    accessory.context.deviceType = deviceType
+    accessory.context.status = status
+
+    // create the accessory handler for the newly create accessory
+    // this is imported from `platformAccessory.ts`
+    new MotionBlindsAccessory(this, accessory)
+
+    // link the accessory to your platform
+    this.api.registerPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, [accessory])
+  }
+
+  handleReport = (report: Report) => {
+    this.maybeAddOrUpdateAccessory(report.mac, report.deviceType, report.data)
   }
 }
