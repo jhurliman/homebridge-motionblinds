@@ -1,4 +1,4 @@
-import {
+import type {
   API,
   DynamicPlatformPlugin,
   Logger,
@@ -17,6 +17,14 @@ export type BlindAccessoryConfig = {
   name?: string
   tilt?: boolean
   invert?: boolean
+}
+
+export type BlindAccessoryContext = {
+  mac?: string
+  deviceType?: DeviceType
+  status?: DeviceStatus
+  targetPosition?: number
+  targetAngle?: number
 }
 
 /**
@@ -41,8 +49,12 @@ export class MotionBlindsPlatform implements DynamicPlatformPlugin {
   ) {
     // Load any configured blinds into a map
     if (Array.isArray(this.config.blinds)) {
-      for (const blind of this.config.blinds) {
-        this.blindConfigs.set(blind.mac, blind)
+      for (const entry of this.config.blinds) {
+        if (typeof entry.mac !== 'string') {
+          this.log.error('Blinds config entry is missing "mac", ignoring')
+        } else {
+          this.blindConfigs.set(entry.mac, entry)
+        }
       }
     }
 
@@ -108,7 +120,7 @@ export class MotionBlindsPlatform implements DynamicPlatformPlugin {
     this.log.info('Adding new accessory:', mac)
 
     // create a new accessory
-    const accessory = new this.api.platformAccessory(mac, uuid)
+    const accessory = new this.api.platformAccessory<BlindAccessoryContext>(mac, uuid)
 
     // store a copy of the device object in the `accessory.context`
     // the `context` property can be used to store any data about the accessory you may need

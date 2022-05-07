@@ -1,7 +1,7 @@
-import { Service, PlatformAccessory } from 'homebridge'
+import type { Service, PlatformAccessory } from 'homebridge'
 import { BlindType, DeviceStatus, DeviceType, MotionGateway, Operation } from 'motionblinds'
 
-import { BlindAccessoryConfig, MotionBlindsPlatform } from './platform'
+import { BlindAccessoryConfig, BlindAccessoryContext, MotionBlindsPlatform } from './platform'
 
 function IsVerticalBlind(blindType: BlindType) {
   switch (blindType) {
@@ -29,9 +29,9 @@ export class MotionBlindsAccessory {
 
   constructor(
     private readonly platform: MotionBlindsPlatform,
-    private readonly accessory: PlatformAccessory,
+    private readonly accessory: PlatformAccessory<BlindAccessoryContext>,
   ) {
-    this.config = this.platform.blindConfigs.get(this.mac) || { mac: this.mac }
+    this.config = this.platform.blindConfigs.get(this.mac) ?? { mac: this.mac }
 
     this.accessory
       .getService(this.platform.Service.AccessoryInformation)!
@@ -42,10 +42,10 @@ export class MotionBlindsAccessory {
     // TODO: Support TDBU blinds by creating two separate WindowCovering services
 
     this.service =
-      this.accessory.getService(this.platform.Service.WindowCovering) ||
+      this.accessory.getService(this.platform.Service.WindowCovering) ??
       this.accessory.addService(this.platform.Service.WindowCovering)
 
-    this.service.setCharacteristic(this.platform.Characteristic.Name, this.config.name || this.mac)
+    this.service.setCharacteristic(this.platform.Characteristic.Name, this.config.name ?? this.mac)
 
     this.service
       .getCharacteristic(this.platform.Characteristic.CurrentPosition)
@@ -113,7 +113,7 @@ export class MotionBlindsAccessory {
     }
 
     this.battery =
-      this.accessory.getService('Battery') ||
+      this.accessory.getService('Battery') ??
       this.accessory.addService(this.platform.Service.Battery, 'Battery', 'Battery-1')
 
     this.battery
@@ -163,7 +163,7 @@ export class MotionBlindsAccessory {
       : this.platform.Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW
   }
 
-  positionState(status: DeviceStatus) {
+  positionState(status: DeviceStatus): 0 | 1 | 2 {
     const DECREASING = this.platform.Characteristic.PositionState.DECREASING
     const INCREASING = this.platform.Characteristic.PositionState.INCREASING
     if (status.operation === Operation.CloseDown) {
@@ -177,16 +177,18 @@ export class MotionBlindsAccessory {
   // Broadcast updates for any characteristics that changed, then update `this.accessory.context.status`
   updateAccessory(newStatus: DeviceStatus) {
     const prevStatus = this.status
+    const prevState = this.positionState(prevStatus)
+    const newState = this.positionState(newStatus)
 
     if (newStatus.currentPosition !== prevStatus.currentPosition) {
       this.service.updateCharacteristic(
         this.platform.Characteristic.CurrentPosition,
         newStatus.currentPosition,
       )
-      this.service.updateCharacteristic(
-        this.platform.Characteristic.PositionState,
-        this.positionState(newStatus),
-      )
+    }
+
+    if (newState !== prevState) {
+      this.service.updateCharacteristic(this.platform.Characteristic.PositionState, newState)
     }
 
     if (this.config.tilt && newStatus.currentAngle !== prevStatus.currentAngle) {
