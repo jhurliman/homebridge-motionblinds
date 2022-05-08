@@ -1464,10 +1464,10 @@ mkdirp@~0.5.1:
   dependencies:
     minimist "^1.2.5"
 
-motionblinds@2.3.0:
-  version "2.3.0"
-  resolved "https://registry.yarnpkg.com/motionblinds/-/motionblinds-2.3.0.tgz#0efd9cc77860a5496b20fd21e5909f8db0b91c3c"
-  integrity sha512-7wRCZkghs1vC91znXPgtdgL8LoIsvZXBFHGEidulGB9EGQ2MnMGrhUgF3+XUxT3keZQ/4e7HY1OCRZhVhuS+Yg==
+motionblinds@2.3.1:
+  version "2.3.1"
+  resolved "https://registry.yarnpkg.com/motionblinds/-/motionblinds-2.3.1.tgz#d51b025bb69b4317e22570d98a2c9162c3e71a9c"
+  integrity sha512-39Hx6B+b+1DOSb0CNn0oXZtYjEsXfUOQtduzJGtQCz9WOAvYNDPBXTpIkFzJgt75adgjVQ76zrpHstvV8aOlyw==
 
 ms@2.1.2:
   version "2.1.2"
