@@ -177,7 +177,6 @@ export class MotionBlindsAccessory {
   // Broadcast updates for any characteristics that changed, then update `this.accessory.context.status`
   updateAccessory(newStatus: DeviceStatus) {
     const prevStatus = this.status
-    const prevState = this.positionState(prevStatus)
     const newState = this.positionState(newStatus)
 
     if (newStatus.currentPosition !== prevStatus.currentPosition) {
@@ -187,9 +186,7 @@ export class MotionBlindsAccessory {
       )
     }
 
-    if (newState !== prevState) {
-      this.service.updateCharacteristic(this.platform.Characteristic.PositionState, newState)
-    }
+    this.service.updateCharacteristic(this.platform.Characteristic.PositionState, newState)
 
     if (this.config.tilt && newStatus.currentAngle !== prevStatus.currentAngle) {
       const currentTiltCharacteristic = IsVerticalBlind(newStatus.type)

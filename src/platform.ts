@@ -88,6 +88,9 @@ export class MotionBlindsPlatform implements DynamicPlatformPlugin {
       const removed = this.accessories.filter((a) => !newUUIDs.has(a.UUID))
       if (removed.length) {
         this.log.warn(`Removing ${removed.length} accessories that are no longer present`)
+        for (const accessory of removed) {
+          this.accessories.splice(this.accessories.indexOf(accessory), 1)
+        }
         this.api.unregisterPlatformAccessories(PLUGIN_NAME, PLATFORM_NAME, removed)
       }
     } catch (err) {
