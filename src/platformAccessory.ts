@@ -240,13 +240,14 @@ export class MotionBlindsAccessory {
       this.platform.log.debug(`$ CurrentPosition (${this.mac}, ${this.deviceType}) ${newStatus.currentPosition}`)
     }
 
-    if (newState !== prevState) {
-      this.platform.log.debug(
-        `$ PositionState (${this.mac}, ${this.deviceType}) ${prevState} -> ${newState}`,
-      )
-      this.service.updateCharacteristic(this.platform.Characteristic.PositionState, newState)
-    } else {
-      this.platform.log.debug(`$ PositionState (${this.mac}, ${this.deviceType}) ${newState}`)
+    this.platform.log.debug(
+      `$ PositionState (${this.mac}, ${this.deviceType}) ${prevState} -> ${newState}`,
+    )
+    this.service.updateCharacteristic(this.platform.Characteristic.PositionState, newState)
+    if (newState !== prevState && newState === 2) {
+      // STOPPED
+      this.service.updateCharacteristic(this.platform.Characteristic.TargetPosition, newStatus.currentPosition)
+      this.service.updateCharacteristic(this.platform.Characteristic.HoldPosition, true)
     }
 
     if (this.config.tilt) {
