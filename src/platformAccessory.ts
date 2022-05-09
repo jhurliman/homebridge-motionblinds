@@ -73,7 +73,7 @@ export class MotionBlindsAccessory {
         .on('get', (callback) => callback(null, this.accessory.context.targetPosition))
         .on('set', (value, callback) => {
           const targetPosition = value as number
-          const effectiveTarget = this.config.invert ? 100 - targetPosition : targetPosition
+          const effectiveTarget = this.config.invert ? targetPosition : 100 - targetPosition
           this.accessory.context.targetPosition = targetPosition
           this.platform.log.debug(`-> writeDevice(${this.mac}, targetPosition=${effectiveTarget})`)
           this.platform.gateway
