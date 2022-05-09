@@ -7,7 +7,7 @@ import type {
   Service,
   Characteristic,
 } from 'homebridge'
-import { DeviceStatus, DeviceType, MotionGateway, Report } from 'motionblinds'
+import { DeviceStatus, DeviceType, DEVICE_TYPES, MotionGateway, Report } from 'motionblinds'
 
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings'
 import { MotionBlindsAccessory } from './platformAccessory'
@@ -76,8 +76,12 @@ export class MotionBlindsPlatform implements DynamicPlatformPlugin {
 
   async discoverDevices() {
     try {
+      this.log.debug('-> readAllDevices()')
       const devices = await this.gateway.readAllDevices()
       const newUUIDs = new Set<string>(devices.map((d) => this.api.hap.uuid.generate(d.mac)))
+      this.log.debug(
+        `<- readAllDevices() found ${devices.length} devices, uuids=${[...newUUIDs].join(', ')}`,
+      )
 
       // Add newly discovered and previously discovered devices
       for (const device of devices) {
@@ -105,15 +109,20 @@ export class MotionBlindsPlatform implements DynamicPlatformPlugin {
     this.seenThisSession.add(mac)
 
     const uuid = this.api.hap.uuid.generate(mac)
-    const existingAccessory = this.accessories.find((accessory) => accessory.UUID === uuid)        
+    const existingAccessory = this.accessories.find((accessory) => accessory.UUID === uuid)
 
     if (existingAccessory) {
       // the accessory already exists
-      this.log.info('Restoring existing accessory from cache:', existingAccessory.displayName)
+      this.log.info(`Restoring existing accessory from cache [${existingAccessory.displayName}], status=${JSON.stringify(status)}`)
       existingAccessory.context.status = status
       this.api.updatePlatformAccessories([existingAccessory])
       new MotionBlindsAccessory(this, existingAccessory)
     } else {
+      this.log.info(
+        `Adding new accessory: mac=${mac}, uuid=${uuid}, deviceType=${
+          DEVICE_TYPES[deviceType]
+        }, status=${JSON.stringify(status)}`,
+      )
       this.addAccessory(mac, uuid, deviceType, status)
     }
   }

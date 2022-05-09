@@ -1,5 +1,16 @@
+import { RemoteInfo } from 'dgram'
 import type { Service, PlatformAccessory } from 'homebridge'
-import { BlindType, DeviceStatus, DeviceType, MotionGateway, Operation } from 'motionblinds'
+import {
+  BlindType,
+  DeviceStatus,
+  DeviceType,
+  DEVICE_TYPES,
+  LimitsState,
+  MotionGateway,
+  Operation,
+  VoltageMode,
+  WirelessMode,
+} from 'motionblinds'
 
 import { BlindAccessoryConfig, BlindAccessoryContext, MotionBlindsPlatform } from './platform'
 
@@ -64,9 +75,13 @@ export class MotionBlindsAccessory {
           const targetPosition = value as number
           const effectiveTarget = this.config.invert ? 100 - targetPosition : targetPosition
           this.accessory.context.targetPosition = targetPosition
+          this.platform.log.debug(`-> writeDevice(${this.mac}, targetPosition=${effectiveTarget})`)
           this.platform.gateway
             .writeDevice(this.mac, this.deviceType, { targetPosition: effectiveTarget })
-            .then(() => callback(null))
+            .then(() => {
+              this.platform.log.debug(`<- writeDevice(${this.mac}, targetPosition=${effectiveTarget})`)
+              callback(null)
+            })
             .catch((err) => callback(err))
         })
 
@@ -76,9 +91,13 @@ export class MotionBlindsAccessory {
           if (!value) {
             return callback(null, value)
           }
+          this.platform.log.debug(`-> writeDevice(${this.mac}, operation=Stop)`)
           this.platform.gateway
             .writeDevice(this.mac, this.deviceType, { operation: Operation.Stop })
-            .then(() => callback(null, value))
+            .then(() => {
+              this.platform.log.debug(`<- writeDevice(${this.mac}, operation=Stop)`)
+              callback(null, value)
+            })
             .catch((err) => callback(err, null))
         })
 
@@ -94,9 +113,13 @@ export class MotionBlindsAccessory {
             const targetAngle = value as number
             const effectiveTarget = targetAngle + 90 // Convert from [-90, 90] to [0, 180]
             this.accessory.context.targetAngle = targetAngle
+            this.platform.log.debug(`-> writeDevice(${this.mac}, targetAngle=${effectiveTarget})`)
             this.platform.gateway
               .writeDevice(this.mac, this.deviceType, { targetAngle: effectiveTarget })
-              .then(() => callback(null))
+              .then(() => {
+                this.platform.log.debug(`<- writeDevice(${this.mac}, targetAngle=${effectiveTarget})`)
+                callback(null)
+              })
               .catch((err) => callback(err))
           })
       }
@@ -126,17 +149,42 @@ export class MotionBlindsAccessory {
 
     // Poll for any inconsistent state every 10s
     setInterval(() => {
+      this.platform.log.debug(`-> readDevice(${this.mac}, ${this.deviceType})`)
       this.platform.gateway
         .readDevice(this.mac, this.deviceType)
-        .then((res) => this.updateAccessory(res.data))
+        .then((res) => {
+          this.platform.log.debug(
+            `<- readDevice(${this.mac}, ${this.deviceType}) => ${JSON.stringify(res)}`,
+          )
+          this.updateAccessory(res.data)
+        })
         .catch((err) => {
           this.platform.log.error(`readDevice(${this.mac}, ${this.deviceType}) failed:`, err)
         })
     }, 10000)
 
-    this.platform.gateway.on('report', (report) => {
-      if (report.mac === this.mac) {
-        this.updateAccessory(report.data)
+    this.platform.gateway.on('report', (dev, rinfo: RemoteInfo) => {
+      if (dev.mac === this.mac) {
+        const [batteryVoltage, batteryPercent] = MotionGateway.BatteryInfo(dev.data.batteryLevel)
+        this.platform.log.debug(
+          `[${rinfo.address}] report [${dev.mac} ${DEVICE_TYPES[dev.deviceType]}] type=${
+            BlindType[dev.data.type]
+          } operation=${Operation[dev.data.operation]} currentPosition=${
+            dev.data.currentPosition
+          } currentAngle=${dev.data.currentAngle} currentState=${
+            LimitsState[dev.data.currentState]
+          } voltageMode=${VoltageMode[dev.data.voltageMode]} batteryLevel=${
+            dev.data.batteryLevel
+          } batteryVoltage=${batteryVoltage} batteryPercent=${batteryPercent} wirelessMode=${
+            WirelessMode[dev.data.wirelessMode]
+          } RSSI=${dev.data.RSSI}`,
+        )
+
+        this.updateAccessory(dev.data)
+      } else {
+        this.platform.log.debug(
+          `ignoring report from ${rinfo.address} [${dev.mac} ${DEVICE_TYPES[dev.deviceType]}]`,
+        )
       }
     })
   }
@@ -177,37 +225,67 @@ export class MotionBlindsAccessory {
   // Broadcast updates for any characteristics that changed, then update `this.accessory.context.status`
   updateAccessory(newStatus: DeviceStatus) {
     const prevStatus = this.status
+    const prevState = this.positionState(prevStatus)
     const newState = this.positionState(newStatus)
 
     if (newStatus.currentPosition !== prevStatus.currentPosition) {
+      this.platform.log.debug(
+        `$ CurrentPosition (${this.mac}, ${this.deviceType}) ${prevStatus.currentPosition} -> ${newStatus.currentPosition}`,
+      )
       this.service.updateCharacteristic(
         this.platform.Characteristic.CurrentPosition,
         newStatus.currentPosition,
       )
+    } else {
+      this.platform.log.debug(`$ CurrentPosition (${this.mac}, ${this.deviceType}) ${newStatus.currentPosition}`)
     }
 
-    this.service.updateCharacteristic(this.platform.Characteristic.PositionState, newState)
+    if (newState !== prevState) {
+      this.platform.log.debug(
+        `$ PositionState (${this.mac}, ${this.deviceType}) ${prevState} -> ${newState}`,
+      )
+      this.service.updateCharacteristic(this.platform.Characteristic.PositionState, newState)
+    } else {
+      this.platform.log.debug(`$ PositionState (${this.mac}, ${this.deviceType}) ${newState}`)
+    }
 
-    if (this.config.tilt && newStatus.currentAngle !== prevStatus.currentAngle) {
-      const currentTiltCharacteristic = IsVerticalBlind(newStatus.type)
-        ? this.platform.Characteristic.CurrentVerticalTiltAngle
-        : this.platform.Characteristic.CurrentHorizontalTiltAngle
-      this.service.updateCharacteristic(currentTiltCharacteristic, newStatus.currentAngle - 90)
+    if (this.config.tilt) {
+      if (newStatus.currentAngle !== prevStatus.currentAngle) {
+        this.platform.log.debug(
+          `$ CurrentTiltAngle (${this.mac}, ${this.deviceType}) ${prevStatus.currentAngle} -> ${newStatus.currentAngle}`,
+        )
+        const currentTiltCharacteristic = IsVerticalBlind(newStatus.type)
+          ? this.platform.Characteristic.CurrentVerticalTiltAngle
+          : this.platform.Characteristic.CurrentHorizontalTiltAngle
+        this.service.updateCharacteristic(currentTiltCharacteristic, newStatus.currentAngle - 90)
+      } else {
+        this.platform.log.debug(`$ CurrentTiltAngle (${this.mac}, ${this.deviceType}) ${newStatus.currentAngle}`)
+      }
     }
 
     const prevBattery = this.batteryLevel(prevStatus)
     const newBattery = this.batteryLevel(newStatus)
     if (prevBattery !== newBattery) {
+      this.platform.log.debug(
+        `$ BatteryLevel (${this.mac}, ${this.deviceType}) ${prevBattery} -> ${newBattery}`,
+      )
       this.service.updateCharacteristic(this.platform.Characteristic.BatteryLevel, newBattery)
+    } else {
+      this.platform.log.debug(`$ BatteryLevel (${this.mac}, ${this.deviceType}) ${newBattery}`)
     }
 
     const prevBatteryStatus = this.batteryStatus(prevStatus)
     const newBatteryStatus = this.batteryStatus(newStatus)
     if (prevBatteryStatus !== newBatteryStatus) {
+      this.platform.log.debug(
+        `$ BatteryStatus (${this.mac}, ${this.deviceType}) ${prevBatteryStatus} -> ${newBatteryStatus}`,
+      )
       this.service.updateCharacteristic(
         this.platform.Characteristic.StatusLowBattery,
         newBatteryStatus,
       )
+    } else {
+      this.platform.log.debug(`$ BatteryStatus (${this.mac}, ${this.deviceType}) ${newBatteryStatus}`)
     }
 
     this.accessory.context.status = newStatus
