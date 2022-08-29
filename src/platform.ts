@@ -157,6 +157,7 @@ export class MotionBlindsPlatform implements DynamicPlatformPlugin {
   }
 
   handleReport = (report: Report) => {
+    this.log.info(`Handling report: mac=${report.mac} deviceType=${report.deviceType} status=${JSON.stringify(report.data)}`)
     this.maybeAddOrUpdateAccessory(report.mac, report.deviceType, report.data)
   }
 }
