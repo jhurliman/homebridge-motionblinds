@@ -131,7 +131,6 @@ export class MotionBlindsPlatform implements DynamicPlatformPlugin {
       } else {
         this.log.info(`Keeping ${DEVICE_TYPES[deviceType]} separate`)
       }
-      this.addAccessory(mac, uuid, deviceType, status)
     }
   }
 
