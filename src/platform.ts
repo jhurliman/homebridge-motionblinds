@@ -8,7 +8,6 @@ import type {
   Characteristic,
 } from 'homebridge'
 import { DeviceStatus, DeviceType, DEVICE_TYPES, MotionGateway, Report } from 'motionblinds'
-import * as motionblinds from 'motionblinds'
 
 import { PLATFORM_NAME, PLUGIN_NAME } from './settings'
 import { MotionBlindsAccessory } from './platformAccessory'
@@ -121,8 +120,8 @@ export class MotionBlindsPlatform implements DynamicPlatformPlugin {
     } else {
       this.log.info(
         `Found new accessory: mac=${mac}, uuid=${uuid}, deviceType=${
-          motionblinds.DEVICE_TYPES[deviceType]}, status=${JSON.stringify(status)}`)
-      if (motionblinds.DEVICE_TYPES[deviceType] !== 'Gateway') {
+          DEVICE_TYPES[deviceType]}, status=${JSON.stringify(status)}`)
+      if (DEVICE_TYPES[deviceType] !== 'Gateway') {
         this.log.info(
           `Adding new accessory: mac=${mac}, uuid=${uuid}, deviceType=${
             DEVICE_TYPES[deviceType]
@@ -130,7 +129,7 @@ export class MotionBlindsPlatform implements DynamicPlatformPlugin {
         )
         this.addAccessory(mac, uuid, deviceType, status)
       } else {
-        this.log.info(`Keeping ${motionblinds.DEVICE_TYPES[deviceType]} separate`)
+        this.log.info(`Keeping ${DEVICE_TYPES[deviceType]} separate`)
       }
       this.addAccessory(mac, uuid, deviceType, status)
     }
