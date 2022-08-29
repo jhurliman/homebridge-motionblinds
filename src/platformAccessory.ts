@@ -70,7 +70,10 @@ export class MotionBlindsAccessory {
     if (this.platform.gateway.key) {
       this.service
         .getCharacteristic(this.platform.Characteristic.TargetPosition)
-        .on('get', (callback) => callback(null, this.accessory.context.targetPosition))
+        .on('get', (callback) => {
+          this.platform.log.debug(`getting target position, accessory=${JSON.stringify(this.accessory)}`)
+          callback(null, this.accessory.context.targetPosition)
+        })
         .on('set', (value, callback) => {
           const targetPosition = value as number
           const effectiveTarget = this.config.invert ? targetPosition : 100 - targetPosition
