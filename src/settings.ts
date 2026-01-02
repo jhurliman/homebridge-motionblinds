@@ -1,9 +1,7 @@
 /**
- * This is the name of the platform that users will use to register the plugin in the Homebridge config.json
+ * Settings for the plugin.
+ * Update PLATFORM_NAME and PLUGIN_NAME to match your package.json.
  */
-export const PLATFORM_NAME = 'MotionBlinds'
 
-/**
- * This must match the name of your plugin as defined the package.json
- */
-export const PLUGIN_NAME = 'homebridge-motionblinds'
+export const PLATFORM_NAME = 'MotionBlindsPlatform';
+export const PLUGIN_NAME = 'homebridge-motionblinds';

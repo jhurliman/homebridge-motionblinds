@@ -1,8 +1,7 @@
-import type { API } from 'homebridge'
+import type { API } from 'homebridge';
+import { MotionBlindsPlatform } from './platform.js';
+import { PLATFORM_NAME } from './settings.js';
 
-import { PLATFORM_NAME } from './settings'
-import { MotionBlindsPlatform } from './platform'
-
-export = (api: API) => {
-  api.registerPlatform(PLATFORM_NAME, MotionBlindsPlatform)
-}
+export default (api: API) => {
+  api.registerPlatform(PLATFORM_NAME, MotionBlindsPlatform);
+};
