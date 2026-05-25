@@ -211,22 +211,27 @@ export class MotionBlindsAccessory {
       : this.platform.Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW
   }
 
-  positionState(status: DeviceStatus): 0 | 1 | 2 {
+  positionState(newStatus: DeviceStatus, prevStatus?: DeviceStatus): 0 | 1 | 2 {
     const DECREASING = this.platform.Characteristic.PositionState.DECREASING
     const INCREASING = this.platform.Characteristic.PositionState.INCREASING
-    if (status.operation === Operation.CloseDown) {
-      return this.config.invert ? INCREASING : DECREASING
-    } else if (status.operation === Operation.OpenUp) {
-      return this.config.invert ? DECREASING : INCREASING
+    const STOPPED = this.platform.Characteristic.PositionState.STOPPED
+
+    // The gateway's `operation` field reports the last command sent, not the current
+    // motion state, so it can't be used to detect whether the blind is moving. The
+    // `currentState` field is also unreliable (verified hard-coded to 4 across 1149
+    // captured packets during real movement). The only reliable signal is delta of
+    // currentPosition between consecutive polls.
+    if (!prevStatus || newStatus.currentPosition === prevStatus.currentPosition) {
+      return STOPPED
     }
-    return this.platform.Characteristic.PositionState.STOPPED
+    const increasing = newStatus.currentPosition > prevStatus.currentPosition
+    return (this.config.invert ? !increasing : increasing) ? INCREASING : DECREASING
   }
 
   // Broadcast updates for any characteristics that changed, then update `this.accessory.context.status`
   updateAccessory(newStatus: DeviceStatus) {
     const prevStatus = this.status
-    const prevState = this.positionState(prevStatus)
-    const newState = this.positionState(newStatus)
+    const newState = this.positionState(newStatus, prevStatus)
 
     if (newStatus.currentPosition !== prevStatus.currentPosition) {
       this.platform.log.debug(
@@ -241,13 +246,14 @@ export class MotionBlindsAccessory {
     }
 
     this.platform.log.debug(
-      `$ PositionState (${this.mac}, ${this.deviceType}) ${prevState} -> ${newState}`,
+      `$ PositionState (${this.mac}, ${this.deviceType}) -> ${newState}`,
     )
     this.service.updateCharacteristic(this.platform.Characteristic.PositionState, newState)
-    if (newState !== prevState && newState === 2) {
-      // STOPPED
+    // Sync TargetPosition to actual CurrentPosition when blind has stopped. Otherwise
+    // Home's global tile shows perpetual "Opening.../Closing..." because the user's
+    // requested target rarely matches the final position exactly (motor inertia).
+    if (newState === this.platform.Characteristic.PositionState.STOPPED) {
       this.service.updateCharacteristic(this.platform.Characteristic.TargetPosition, newStatus.currentPosition)
-      this.service.updateCharacteristic(this.platform.Characteristic.HoldPosition, true)
     }
 
     if (this.config.tilt) {
