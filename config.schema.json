@@ -13,11 +13,12 @@
       },
       "key": {
         "title": "Key",
-        "description": "Key acquired from the MOTION app, has the format xxxxxxxx-xxxx-xx",
+        "description": "16-byte local API key from the MOTION app",
         "type": "string",
         "minLength": 16,
         "maxLength": 16,
-        "required": false
+        "required": false,
+        "format": "password"
       },
       "gatewayIp": {
         "title": "Gateway IP",
@@ -39,10 +40,11 @@
             "mac": {
               "title": "MAC Address",
               "type": "string",
-              "minLength": 16,
+              "minLength": 12,
               "maxLength": 16,
               "required": true,
-              "description": "16-character unique identifier for this window covering"
+              "description": "12- or 16-digit hexadecimal MAC from the gateway",
+              "pattern": "^(?:[0-9a-fA-F]{12}|[0-9a-fA-F]{16})$"
             },
             "name": {
               "type": "string",
@@ -61,9 +63,21 @@
               "title": "Invert Window Orientation",
               "required": false,
               "description": "Swap up for down or left for right in this window coverings orientation"
+            },
+            "battery": {
+              "type": "boolean",
+              "default": true,
+              "description": "Disable battery reporting for mains-powered or incompatible battery encodings"
             }
           }
         }
+      },
+      "pollSeconds": {
+        "type": "integer",
+        "minimum": 2,
+        "maximum": 3600,
+        "default": 10,
+        "description": "Status polling interval"
       }
     }
   }
