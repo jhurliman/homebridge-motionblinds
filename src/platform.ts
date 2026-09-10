@@ -16,6 +16,7 @@ export class MotionBlindsPlatform implements DynamicPlatformPlugin {
   private readonly handlers = new Map<string, MotionBlindsAccessory>()
   private stopped = false
   private discovery?: Promise<void>
+  private discoveryTimer?: ReturnType<typeof setInterval>
 
   constructor(public readonly log: Logger, public readonly config: PlatformConfig, public readonly api: API) {
     this.Service = api.hap.Service
@@ -33,11 +34,15 @@ export class MotionBlindsPlatform implements DynamicPlatformPlugin {
     this.gateway.on('error', () => this.log.error('MOTION gateway communication failed'))
     this.api.on('didFinishLaunching', () => {
       if (this.stopped) return
+      if (this.discoveryTimer) return
       this.gateway.on('report', this.handleReport)
       void this.discoverDevices()
+      this.discoveryTimer = setInterval(() => { void this.discoverDevices() }, 60000)
+      this.discoveryTimer.unref()
     })
     this.api.on('shutdown', () => {
       this.stopped = true
+      clearInterval(this.discoveryTimer)
       for (const handler of this.handlers.values()) handler.dispose()
       this.handlers.clear()
       this.gateway.removeListener('report', this.handleReport)
@@ -55,6 +60,13 @@ export class MotionBlindsPlatform implements DynamicPlatformPlugin {
   }
 
   private async discover() {
+    // Cache serialization does not preserve HomeKit handlers or polling timers.
+    for (const accessory of this.accessories) {
+      const { mac, deviceType, status } = accessory.context
+      if (typeof mac === 'string' && deviceType && validStatus(status) && !this.handlers.has(mac.toLowerCase())) {
+        this.maybeAddOrUpdateAccessory(mac, deviceType, status)
+      }
+    }
     try {
       const list = await this.gateway.getDeviceList()
       if (this.stopped) return

@@ -96,3 +96,27 @@ test('discovery skips gateway records, handles 28 devices, reuses handlers and s
   assert.equal(platform.gateway.listenerCount('report'), 0);
   assert.equal(removed.length, 0);
 });
+
+test('cached blinds regain handlers and polling even when the startup read fails', async t => {
+  const homebridge = await api();
+  homebridge.registerPlatformAccessories = () => {};
+  homebridge.unregisterPlatformAccessories = () => {};
+  homebridge.updatePlatformAccessories = () => {};
+  const cached = new homebridge.platformAccessory('Cached blind', homebridge.hap.uuid.generate(mac));
+  cached.context = { mac, deviceType: '10000000', status };
+  t.mock.method(MotionGateway.prototype, 'getDeviceList', async () => ({ data: [{ mac, deviceType: '10000000' }] }));
+  t.mock.method(MotionGateway.prototype, 'readDevice', async () => { throw new Error('temporary startup timeout'); });
+  t.mock.method(MotionGateway.prototype, 'stop', () => {});
+  let writes = 0;
+  t.mock.method(MotionGateway.prototype, 'writeDevice', async () => { writes++; return { data: status }; });
+  const platform = new MotionBlindsPlatform({ debug() {}, info() {}, warn() {}, error() {} }, { platform: 'MotionBlinds', key: '0123456789abcdef' }, homebridge);
+  t.after(() => homebridge.emit('shutdown'));
+  platform.configureAccessory(cached);
+  await platform.discoverDevices();
+  const C = homebridge.hap.Characteristic, service = cached.getService(homebridge.hap.Service.WindowCovering);
+  assert.equal(await service.getCharacteristic(C.CurrentPosition).handleGetRequest(), 80);
+  await service.getCharacteristic(C.TargetPosition).handleSetRequest(30);
+  assert.equal(writes, 1);
+  assert.equal(platform.handlers.size, 1);
+  assert.equal(platform.handlers.get(mac).timer._destroyed, false);
+});
