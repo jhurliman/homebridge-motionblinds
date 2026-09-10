@@ -1,294 +1,134 @@
-import { RemoteInfo } from 'dgram'
 import type { Service, PlatformAccessory } from 'homebridge'
-import {
-  BlindType,
-  DeviceStatus,
-  DeviceType,
-  DEVICE_TYPES,
-  LimitsState,
-  MotionGateway,
-  Operation,
-  VoltageMode,
-  WirelessMode,
-} from 'motionblinds'
-
+import { BlindType, DeviceStatus, DeviceType, MotionGateway, Operation, VoltageMode } from 'motionblinds'
 import { BlindAccessoryConfig, BlindAccessoryContext, MotionBlindsPlatform } from './platform'
 
-function IsVerticalBlind(blindType: BlindType) {
-  switch (blindType) {
-    case BlindType.RollerBlind:
-    case BlindType.VenetianBlind:
-    case BlindType.RomanBlind:
-    case BlindType.HoneycombBlind:
-    case BlindType.ShangriLaBlind:
-    case BlindType.Awning:
-    case BlindType.TopDownBottomUp:
-    case BlindType.DayNightBlind:
-    case BlindType.DimmingBlind:
-    case BlindType.DoubleRoller:
-    case BlindType.Switch:
-      return true
-    default:
-      return false
-  }
+export function validStatus(value: unknown): value is DeviceStatus {
+  if (!value || typeof value !== 'object') return false
+  const status = value as Partial<DeviceStatus>
+  return Number.isFinite(status.currentPosition) && status.currentPosition! >= 0 && status.currentPosition! <= 100 && Number.isFinite(status.type)
 }
 
 export class MotionBlindsAccessory {
-  private service: Service
-  private battery: Service
-  private config: BlindAccessoryConfig
+  private readonly service: Service
+  private readonly battery?: Service
+  private readonly config: BlindAccessoryConfig
+  private readonly timer: ReturnType<typeof setInterval>
+  private polling = false
+  private disposed = false
+  private movement: 0 | 1 | 2 = 2
+  private previousAt = Date.now()
+  private lastMovementAt = Date.now()
+  private commandAt = 0
+  private readonly currentTilt: typeof this.platform.Characteristic.CurrentVerticalTiltAngle | typeof this.platform.Characteristic.CurrentHorizontalTiltAngle
 
-  constructor(
-    private readonly platform: MotionBlindsPlatform,
-    private readonly accessory: PlatformAccessory<BlindAccessoryContext>,
-  ) {
-    this.config = this.platform.blindConfigs.get(this.mac) ?? { mac: this.mac }
-
-    this.accessory
-      .getService(this.platform.Service.AccessoryInformation)!
-      .setCharacteristic(this.platform.Characteristic.Manufacturer, 'MOTION')
-      .setCharacteristic(this.platform.Characteristic.Model, BlindType[this.status.type])
-      .setCharacteristic(this.platform.Characteristic.SerialNumber, this.mac)
-
-    // TODO: Support TDBU blinds by creating two separate WindowCovering services
-
-    this.service =
-      this.accessory.getService(this.platform.Service.WindowCovering) ??
-      this.accessory.addService(this.platform.Service.WindowCovering)
-
-    this.service.setCharacteristic(this.platform.Characteristic.Name, this.config.name ?? this.mac)
-
-    this.service
-      .getCharacteristic(this.platform.Characteristic.CurrentPosition)
-      .on('get', (callback) => callback(null, this.status.currentPosition))
-
-    this.service
-      .getCharacteristic(this.platform.Characteristic.PositionState)
-      .on('get', (callback) => callback(null, this.positionState(this.status)))
-
-    // A key is required for write commands
-    if (this.platform.gateway.key) {
-      this.service
-        .getCharacteristic(this.platform.Characteristic.TargetPosition)
-        .on('get', (callback) => callback(null, this.accessory.context.targetPosition))
-        .on('set', (value, callback) => {
-          const targetPosition = value as number
-          const effectiveTarget = this.config.invert ? targetPosition : 100 - targetPosition
-          this.accessory.context.targetPosition = targetPosition
-          this.platform.log.debug(`-> writeDevice(${this.mac}, targetPosition=${effectiveTarget})`)
-          this.platform.gateway
-            .writeDevice(this.mac, this.deviceType, { targetPosition: effectiveTarget })
-            .then(() => {
-              this.platform.log.debug(`<- writeDevice(${this.mac}, targetPosition=${effectiveTarget})`)
-              callback(null)
-            })
-            .catch((err) => callback(err))
-        })
-
-      this.service
-        .getCharacteristic(this.platform.Characteristic.HoldPosition)
-        .on('set', (value, callback) => {
-          if (!value) {
-            return callback(null, value)
-          }
-          this.platform.log.debug(`-> writeDevice(${this.mac}, operation=Stop)`)
-          this.platform.gateway
-            .writeDevice(this.mac, this.deviceType, { operation: Operation.Stop })
-            .then(() => {
-              this.platform.log.debug(`<- writeDevice(${this.mac}, operation=Stop)`)
-              callback(null, value)
-            })
-            .catch((err) => callback(err, null))
-        })
-
-      if (this.config.tilt) {
-        const targetTiltCharacteristic = IsVerticalBlind(this.status.type)
-          ? this.platform.Characteristic.TargetVerticalTiltAngle
-          : this.platform.Characteristic.TargetHorizontalTiltAngle
-
-        this.service
-          .getCharacteristic(targetTiltCharacteristic)
-          .on('get', (callback) => callback(null, this.accessory.context.targetAngle))
-          .on('set', (value, callback) => {
-            const targetAngle = value as number
-            const effectiveTarget = targetAngle + 90 // Convert from [-90, 90] to [0, 180]
-            this.accessory.context.targetAngle = targetAngle
-            this.platform.log.debug(`-> writeDevice(${this.mac}, targetAngle=${effectiveTarget})`)
-            this.platform.gateway
-              .writeDevice(this.mac, this.deviceType, { targetAngle: effectiveTarget })
-              .then(() => {
-                this.platform.log.debug(`<- writeDevice(${this.mac}, targetAngle=${effectiveTarget})`)
-                callback(null)
-              })
-              .catch((err) => callback(err))
-          })
-      }
-    }
-
-    if (this.config.tilt) {
-      const currentTiltCharacteristic = IsVerticalBlind(this.status.type)
-        ? this.platform.Characteristic.CurrentVerticalTiltAngle
-        : this.platform.Characteristic.CurrentHorizontalTiltAngle
-
-      this.service
-        .getCharacteristic(currentTiltCharacteristic)
-        .on('get', (callback) => callback(null, this.status.currentAngle - 90))
-    }
-
-    this.battery =
-      this.accessory.getService('Battery') ??
-      this.accessory.addService(this.platform.Service.Battery, 'Battery', 'Battery-1')
-
-    this.battery
-      .getCharacteristic(this.platform.Characteristic.StatusLowBattery)
-      .on('get', (callback) => callback(null, this.batteryStatus(this.status)))
-
-    this.battery
-      .getCharacteristic(this.platform.Characteristic.BatteryLevel)
-      .on('get', (callback) => callback(null, this.batteryLevel(this.status)))
-
-    // Poll for any inconsistent state every 10s
-    setInterval(() => {
-      this.platform.log.debug(`-> readDevice(${this.mac}, ${this.deviceType})`)
-      this.platform.gateway
-        .readDevice(this.mac, this.deviceType)
-        .then((res) => {
-          this.platform.log.debug(
-            `<- readDevice(${this.mac}, ${this.deviceType}) => ${JSON.stringify(res)}`,
-          )
-          this.updateAccessory(res.data)
-        })
-        .catch((err) => {
-          this.platform.log.error(`readDevice(${this.mac}, ${this.deviceType}) failed:`, err)
-        })
-    }, 10000)
-
-    this.platform.gateway.on('report', (dev, rinfo: RemoteInfo) => {
-      if (dev.mac === this.mac) {
-        const [batteryVoltage, batteryPercent] = MotionGateway.BatteryInfo(dev.data.batteryLevel)
-        this.platform.log.debug(
-          `[${rinfo.address}] report [${dev.mac} ${DEVICE_TYPES[dev.deviceType]}] type=${
-            BlindType[dev.data.type]
-          } operation=${Operation[dev.data.operation]} currentPosition=${
-            dev.data.currentPosition
-          } currentAngle=${dev.data.currentAngle} currentState=${
-            LimitsState[dev.data.currentState]
-          } voltageMode=${VoltageMode[dev.data.voltageMode]} batteryLevel=${
-            dev.data.batteryLevel
-          } batteryVoltage=${batteryVoltage} batteryPercent=${batteryPercent} wirelessMode=${
-            WirelessMode[dev.data.wirelessMode]
-          } RSSI=${dev.data.RSSI}`,
-        )
-
-        this.updateAccessory(dev.data)
-      } else {
-        this.platform.log.debug(
-          `ignoring report from ${rinfo.address} [${dev.mac} ${DEVICE_TYPES[dev.deviceType]}]`,
-        )
-      }
+  constructor(private readonly platform: MotionBlindsPlatform, private readonly accessory: PlatformAccessory<BlindAccessoryContext>) {
+    this.config = platform.blindConfigs.get(this.mac) ?? { mac: this.mac }
+    const { Service, Characteristic: C } = platform
+    accessory.getService(Service.AccessoryInformation)!
+      .setCharacteristic(C.Manufacturer, 'MOTION')
+      .setCharacteristic(C.Model, BlindType[this.status.type] ?? 'Blind')
+      .setCharacteristic(C.SerialNumber, this.mac)
+    this.service = accessory.getService(Service.WindowCovering) ?? accessory.addService(Service.WindowCovering)
+    this.service.setCharacteristic(C.Name, this.config.name ?? accessory.displayName)
+    this.accessory.context.targetPosition = this.position(this.status.currentPosition)
+    this.accessory.context.targetAngle = Number.isFinite(this.status.currentAngle) && this.status.currentAngle >= 0 && this.status.currentAngle <= 180 ? this.angle(this.status.currentAngle) : 0
+    this.service.getCharacteristic(C.CurrentPosition).onGet(() => this.position(this.status.currentPosition))
+    this.service.getCharacteristic(C.PositionState).onGet(() => this.movement)
+    this.service.getCharacteristic(C.TargetPosition).onGet(() => this.accessory.context.targetPosition!)
+      .onSet(async value => {
+        if (this.disposed) throw new Error('Plugin is shutting down')
+        if (!this.platform.gateway.key) throw new Error('A MOTION key is required for control')
+        const target = this.validate(value, 0, 100)
+        await this.platform.gateway.writeDevice(this.mac, this.deviceType, { targetPosition: this.position(target) })
+        if (this.disposed) return
+        this.accessory.context.targetPosition = target
+        this.commandAt = this.lastMovementAt = Date.now()
+      })
+    this.service.getCharacteristic(C.HoldPosition).onSet(async value => {
+      if (!value) return
+      if (this.disposed) throw new Error('Plugin is shutting down')
+        if (!this.platform.gateway.key) throw new Error('A MOTION key is required for control')
+      await this.platform.gateway.writeDevice(this.mac, this.deviceType, { operation: Operation.Stop })
+      // A stop acknowledgement is not a new position reading. Poll to reconcile.
+      await this.poll()
     })
-  }
-
-  get mac() {
-    return this.accessory.context.mac as string
-  }
-
-  get deviceType() {
-    return this.accessory.context.deviceType as DeviceType
-  }
-
-  get status() {
-    return this.accessory.context.status as DeviceStatus
-  }
-
-  batteryLevel(status: DeviceStatus) {
-    return MotionGateway.BatteryInfo(status.batteryLevel)[1] * 100
-  }
-
-  batteryStatus(status: DeviceStatus) {
-    return this.batteryLevel(status) >= 20
-      ? this.platform.Characteristic.StatusLowBattery.BATTERY_LEVEL_NORMAL
-      : this.platform.Characteristic.StatusLowBattery.BATTERY_LEVEL_LOW
-  }
-
-  positionState(status: DeviceStatus): 0 | 1 | 2 {
-    const DECREASING = this.platform.Characteristic.PositionState.DECREASING
-    const INCREASING = this.platform.Characteristic.PositionState.INCREASING
-    if (status.operation === Operation.CloseDown) {
-      return this.config.invert ? INCREASING : DECREASING
-    } else if (status.operation === Operation.OpenUp) {
-      return this.config.invert ? DECREASING : INCREASING
-    }
-    return this.platform.Characteristic.PositionState.STOPPED
-  }
-
-  // Broadcast updates for any characteristics that changed, then update `this.accessory.context.status`
-  updateAccessory(newStatus: DeviceStatus) {
-    const prevStatus = this.status
-    const prevState = this.positionState(prevStatus)
-    const newState = this.positionState(newStatus)
-
-    if (newStatus.currentPosition !== prevStatus.currentPosition) {
-      this.platform.log.debug(
-        `$ CurrentPosition (${this.mac}, ${this.deviceType}) ${prevStatus.currentPosition} -> ${newStatus.currentPosition}`,
-      )
-      this.service.updateCharacteristic(
-        this.platform.Characteristic.CurrentPosition,
-        newStatus.currentPosition,
-      )
-    } else {
-      this.platform.log.debug(`$ CurrentPosition (${this.mac}, ${this.deviceType}) ${newStatus.currentPosition}`)
-    }
-
-    this.platform.log.debug(
-      `$ PositionState (${this.mac}, ${this.deviceType}) ${prevState} -> ${newState}`,
-    )
-    this.service.updateCharacteristic(this.platform.Characteristic.PositionState, newState)
-    if (newState !== prevState && newState === 2) {
-      // STOPPED
-      this.service.updateCharacteristic(this.platform.Characteristic.TargetPosition, newStatus.currentPosition)
-      this.service.updateCharacteristic(this.platform.Characteristic.HoldPosition, true)
-    }
-
+    const horizontal = ![BlindType.RollerBlind, BlindType.VenetianBlind, BlindType.RomanBlind, BlindType.HoneycombBlind, BlindType.ShangriLaBlind, BlindType.Awning, BlindType.TopDownBottomUp, BlindType.DayNightBlind, BlindType.DimmingBlind, BlindType.DoubleRoller, BlindType.Switch].includes(this.status.type)
+    this.currentTilt = horizontal ? C.CurrentHorizontalTiltAngle : C.CurrentVerticalTiltAngle
+    const targetTilt = horizontal ? C.TargetHorizontalTiltAngle : C.TargetVerticalTiltAngle
     if (this.config.tilt) {
-      if (newStatus.currentAngle !== prevStatus.currentAngle) {
-        this.platform.log.debug(
-          `$ CurrentTiltAngle (${this.mac}, ${this.deviceType}) ${prevStatus.currentAngle} -> ${newStatus.currentAngle}`,
-        )
-        const currentTiltCharacteristic = IsVerticalBlind(newStatus.type)
-          ? this.platform.Characteristic.CurrentVerticalTiltAngle
-          : this.platform.Characteristic.CurrentHorizontalTiltAngle
-        this.service.updateCharacteristic(currentTiltCharacteristic, newStatus.currentAngle - 90)
+      this.service.getCharacteristic(this.currentTilt).onGet(() => this.angle(this.status.currentAngle))
+      this.service.getCharacteristic(targetTilt).onGet(() => this.accessory.context.targetAngle!)
+        .onSet(async value => {
+          if (this.disposed) throw new Error('Plugin is shutting down')
+        if (!this.platform.gateway.key) throw new Error('A MOTION key is required for control')
+          const angle = this.validate(value, -90, 90)
+          await this.platform.gateway.writeDevice(this.mac, this.deviceType, { targetAngle: angle + 90 })
+          if (!this.disposed) this.accessory.context.targetAngle = angle
+        })
+    }
+    const oldBattery = accessory.getService(Service.Battery)
+    if (this.config.battery !== false && this.status.voltageMode !== VoltageMode.AC && Number.isFinite(this.status.batteryLevel) && this.status.batteryLevel > 0) {
+      this.battery = oldBattery ?? accessory.addService(Service.Battery, 'Battery', 'Battery-1')
+      this.battery.getCharacteristic(C.BatteryLevel).onGet(() => this.batteryLevel(this.status))
+      this.battery.getCharacteristic(C.StatusLowBattery).onGet(() => this.batteryLevel(this.status) < 20 ? 1 : 0)
+    } else if (oldBattery) accessory.removeService(oldBattery)
+    this.timer = setInterval(() => { void this.poll() }, platform.pollSeconds * 1000)
+    this.timer.unref()
+    this.updateAccessory(this.status)
+  }
+
+  get mac() { return this.accessory.context.mac! }
+  get deviceType() { return this.accessory.context.deviceType as DeviceType }
+  get status() { return this.accessory.context.status as DeviceStatus }
+  position(raw: number) { return this.config.invert ? raw : 100 - raw }
+  private validate(value: unknown, min: number, max: number): number {
+    if (typeof value !== 'number' || !Number.isFinite(value) || value < min || value > max) throw new Error('Invalid target')
+    return value
+  }
+  private angle(value: number) { return this.validate(value, 0, 180) - 90 }
+  batteryLevel(status: DeviceStatus) {
+    if (!Number.isFinite(status.batteryLevel) || status.batteryLevel <= 0) throw new Error('Battery reading unavailable')
+    return Math.round(MotionGateway.BatteryInfo(status.batteryLevel)[1] * 100)
+  }
+  dispose() { this.disposed = true; clearInterval(this.timer) }
+  async poll() {
+    if (this.polling || this.disposed) return
+    this.polling = true
+    try {
+      const result = await this.platform.gateway.readDevice(this.mac, this.deviceType)
+      if (!this.disposed) this.updateAccessory(result.data)
+    } catch { if (!this.disposed) this.platform.log.warn(`Status read failed for ${this.mac}`) }
+    finally { this.polling = false }
+  }
+  updateAccessory(value: unknown) {
+    if (this.disposed || !validStatus(value)) return
+    const now = Date.now(), previous = this.position(this.status.currentPosition), current = this.position(value.currentPosition)
+    // Position deltas, not the gateway's persistent last-command field, indicate observed motion.
+    if (current !== previous) {
+      this.movement = current > previous ? 1 : 0
+      this.lastMovementAt = now
+    } else if (now - Math.max(this.lastMovementAt, this.commandAt) >= this.platform.pollSeconds * 1000 && now > this.previousAt) {
+      this.movement = 2
+    }
+    this.previousAt = now
+    this.accessory.context.status = value
+    const C = this.platform.Characteristic
+    this.service.updateCharacteristic(C.CurrentPosition, current)
+    this.service.updateCharacteristic(C.PositionState, this.movement)
+    if (this.movement === 2 && now - this.commandAt >= this.platform.pollSeconds * 1000) {
+      this.accessory.context.targetPosition = current
+      this.service.updateCharacteristic(C.TargetPosition, current)
+    }
+    if (this.config.tilt && Number.isFinite(value.currentAngle) && value.currentAngle >= 0 && value.currentAngle <= 180) this.service.updateCharacteristic(this.currentTilt, value.currentAngle - 90)
+    if (this.battery) {
+      const level = Number.isFinite(value.batteryLevel) && value.batteryLevel > 0 ? this.batteryLevel(value) : new Error('Battery reading unavailable')
+      if (typeof level === 'number') {
+        this.battery.updateCharacteristic(C.BatteryLevel, level)
+        this.battery.updateCharacteristic(C.StatusLowBattery, level < 20 ? 1 : 0)
       } else {
-        this.platform.log.debug(`$ CurrentTiltAngle (${this.mac}, ${this.deviceType}) ${newStatus.currentAngle}`)
+        this.battery.updateCharacteristic(C.BatteryLevel, level)
+        this.battery.updateCharacteristic(C.StatusLowBattery, level)
       }
     }
-
-    const prevBattery = this.batteryLevel(prevStatus)
-    const newBattery = this.batteryLevel(newStatus)
-    if (prevBattery !== newBattery) {
-      this.platform.log.debug(
-        `$ BatteryLevel (${this.mac}, ${this.deviceType}) ${prevBattery} -> ${newBattery}`,
-      )
-      this.service.updateCharacteristic(this.platform.Characteristic.BatteryLevel, newBattery)
-    } else {
-      this.platform.log.debug(`$ BatteryLevel (${this.mac}, ${this.deviceType}) ${newBattery}`)
-    }
-
-    const prevBatteryStatus = this.batteryStatus(prevStatus)
-    const newBatteryStatus = this.batteryStatus(newStatus)
-    if (prevBatteryStatus !== newBatteryStatus) {
-      this.platform.log.debug(
-        `$ BatteryStatus (${this.mac}, ${this.deviceType}) ${prevBatteryStatus} -> ${newBatteryStatus}`,
-      )
-      this.service.updateCharacteristic(
-        this.platform.Characteristic.StatusLowBattery,
-        newBatteryStatus,
-      )
-    } else {
-      this.platform.log.debug(`$ BatteryStatus (${this.mac}, ${this.deviceType}) ${newBatteryStatus}`)
-    }
-
-    this.accessory.context.status = newStatus
   }
 }
