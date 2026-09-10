@@ -74,6 +74,7 @@ export class MotionBlindsAccessory {
     } else if (oldBattery) accessory.removeService(oldBattery)
     this.timer = setInterval(() => { void this.poll() }, platform.pollSeconds * 1000)
     this.timer.unref()
+    this.updateAccessory(this.status)
   }
 
   get mac() { return this.accessory.context.mac! }
