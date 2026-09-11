@@ -7,6 +7,12 @@ Control MOTION gateway blinds from Apple Home over your local network. The plugi
 
 Requires **Homebridge 2.4+ and Node 22, 24, or 26**. See [CHANGELOG.md](CHANGELOG.md) for version 3 migration notes.
 
+## Maintainer wanted
+
+The current maintainer no longer has a compatible MOTION Blinds gateway and motors and cannot test this integration against a live setup. Automated tests pass, but this release has not been validated on physical hardware. Compatibility reports and fixes from active users are welcome.
+
+If you use this integration and would like to take over maintenance and releases, [open an issue](https://github.com/jhurliman/homebridge-motionblinds/issues/new?title=Interested%20in%20maintaining%20this%20project) describing your setup and interest.
+
 ## Get connected
 
 Install `homebridge-motionblinds` through Homebridge UI. Add a `MotionBlinds` platform, enter the gateway's local IP, and supply the **16-byte local API key** from the MOTION app to enable control. Without a key, position readings work and write requests return an error.
