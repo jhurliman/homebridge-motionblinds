@@ -5,7 +5,7 @@
 
 Control MOTION gateway blinds from Apple Home over your local network. The plugin discovers blinds, exposes position and optional tilt controls, and updates HomeKit from gateway reports plus periodic status reads. It supports compatible Coulisse-based products; matching branding alone does not establish protocol compatibility.
 
-This branch prepares **3.0 for Homebridge 2.4+ and Node 22, 24, or 26**. It fixes inconsistent inverted positions and persistent Opening/Closing indicators. See the release checklist before publishing or upgrading from 2.x.
+Requires **Homebridge 2.4+ and Node 22, 24, or 26**. See [CHANGELOG.md](CHANGELOG.md) for version 3 migration notes.
 
 ## Get connected
 
@@ -74,7 +74,7 @@ npm pack
 
 Tests use real Homebridge services and simulated gateway responses. They cover inversion, movement settling, target synchronization, battery handling, incomplete payloads, no-key control, polling shutdown, and 28-device discovery. No physical blinds are moved.
 
-Before publishing 3.0, merge and publish [motionblinds 3.0](https://github.com/jhurliman/node-motionblinds/pull/14), then change this plugin's dependency to `^3.0.0` and regenerate the lockfile. The review branch allows both 2.3.1 and 3.0 so CI can run before the parent release. Retest with the published dependency and verify gateway discovery and deliberately selected controls on supported hardware. Do not advertise the parent library's timeout/Windows fixes as available through the old dependency.
+See [RELEASING.md](RELEASING.md) for maintainer release checks and dependency publication order.
 
 Thanks to [@nrocha22](https://github.com/nrocha22) for the packet analysis and position-delta proposal in [#25](https://github.com/jhurliman/homebridge-motionblinds/issues/25) and [#26](https://github.com/jhurliman/homebridge-motionblinds/pull/26).
 
