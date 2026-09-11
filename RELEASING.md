@@ -1,11 +1,11 @@
 # Releasing homebridge-motionblinds
 
-## Version 3 dependency sequence
+The maintainer no longer has the required account or hardware. Releases may proceed after automated checks, with the README and release notes explicitly stating that live compatibility is unverified. Do not describe simulated tests as hardware or service validation. Invite active users to test and take over maintenance.
 
-1. Merge and publish [motionblinds 3.0](https://github.com/jhurliman/node-motionblinds/pull/14).
-2. Change this plugin’s dependency to `motionblinds: ^3.0.0` and regenerate the lockfile. The current compatibility range permits both 2.3.1 and 3.0, but the lockfile still selects 2.3.1.
-3. Run `npm ci`, `npm test`, and `npm pack` against the published dependency.
-4. Verify gateway discovery and deliberately selected controls on supported hardware. Confirm Windows networking where applicable.
-5. Publish the plugin after validation. Do not attribute the parent client’s version 3 timeout/Windows fixes to installations using version 2.3.1.
+- Publish `motionblinds` first, require `^3.0.0`, and regenerate the lockfile.
+- Run `npm ci`, `npm test`, and `npm pack` against the published dependencies. Confirm supported Node/Homebridge versions, entry points, UI schema, documentation, and license.
+- Review migration notes and publish. Keep known compatibility issues open until an active user verifies a fix.
 
-Keep installation requirements, supported features, migration behavior, and hardware limitations in the README. Keep temporary publication status and this checklist here.
+## Community validation
+
+Verify gateway discovery, status reports, networking on your OS, and commands on a deliberately selected motor. Report gateway model and firmware without exposing API keys.
